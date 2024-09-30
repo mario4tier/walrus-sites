@@ -424,7 +424,7 @@ impl ResourceManager {
         //     };
 
         Ok(Some(Resource::new(
-            full_path_to_resource_path(full_path, root)?,
+            resource_path,
             full_path.to_owned(),
             HttpHeaders::from(http_headers),
             output.blob_id,
