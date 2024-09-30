@@ -385,25 +385,12 @@ impl ResourceManager {
                 .expect("the path should not terminate in `..`"),
         );
 
-        // Get the headers of the specific resource if they exist
-        // for this specific path.
-        // 1. Is ws-config.json specified?
-        let all_headers = match &self.ws_config {
-            Some(config) => &config.headers,
-            None => &None,
-        };
-        // 2. Are "headers" included in ws-config?
         let resource_path = full_path_to_resource_path(full_path, root)?;
-        let headers = match all_headers {
-            Some(map) => map.get(&resource_path),
-            _ => None,
-        };
-        // 3. Does the specific resource has headers defined for it? If not, use defaults.
-        let http_headers = match headers {
-            Some(h) => HttpHeaders::from(h.clone()),
-            _ => HttpHeaders::new(),
-        };
-
+        let httpheaders = self
+            .ws_config
+            .and_then(|config| config.headers)
+            .and_then(|headers| headers.get(&resource_path))
+            .unwrap_or(&HashMap::new());
         // TODO(tza): try_from content type based on the content parsed from ws-config.
         // let content_type =
         //     match ContentType::try_from_extension(extension.to_str().ok_or(anyhow!(
