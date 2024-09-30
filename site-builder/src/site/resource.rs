@@ -18,7 +18,7 @@ use move_core_types::u256::U256;
 use sui_sdk::rpc_types::{SuiMoveStruct, SuiMoveValue};
 
 use crate::{
-    site::config::WSConfig,
+    site::{config::WSConfig, content::ContentType},
     walrus::{types::BlobId, Walrus},
 };
 
@@ -67,8 +67,6 @@ pub struct HttpHeader {
 
 #[derive(serde::Serialize, Clone, Debug, PartialEq, PartialOrd, Ord, Eq)]
 pub struct HttpHeaders(pub Vec<HttpHeader>);
-
-impl HttpHeaders {}
 
 impl From<HashMap<String, String>> for HttpHeaders {
     fn from(values: HashMap<String, String>) -> Self {
@@ -373,39 +371,51 @@ impl ResourceManager {
     ///
     /// Ignores empty files.
     pub fn read_resource(&self, full_path: &Path, root: &Path) -> Result<Option<Resource>> {
-        // TODO: move this later, and use to infer if the mime type is not provided?
-        let _extension = full_path.extension().unwrap_or(
-            full_path
-                .file_name()
-                .expect("the path should not terminate in `..`"),
-        );
-
         let resource_path = full_path_to_resource_path(full_path, root)?;
-        let http_headers: HashMap<String, String> = self
+        let mut http_headers: HashMap<String, String> = self
             .ws_config
             .as_ref()
             .and_then(|config| config.headers.as_ref())
             .and_then(|headers| headers.get(&resource_path))
             .cloned()
+            // Cast the keys to lowercase because http headers
+            //  are case-insensitive: RFC7230 sec. 2.7.3
+            .map(|headers| {
+                headers
+                    .into_iter()
+                    .map(|(k, v)| (k.to_lowercase(), v))
+                    .collect()
+            })
             .unwrap_or_default();
 
-        // TODO(tza): try_from content type based on the content parsed from ws-config.
-        // let content_type =
-        //     match ContentType::try_from_extension(extension.to_str().ok_or(anyhow!(
-        //         "Could not convert the extension {:?} to a string.",
-        //         extension.to_string_lossy()
-        //     ))?) {
-        //         Ok(content_type) => content_type,
-        //         Err(_) => {
-        //             tracing::warn!(
-        //                 "The extension {} string for file {} could not be decoded.
-        //                 Defaulting to arbitrary binary content type: octet-stream.",
-        //                 extension.to_string_lossy(),
-        //                 full_path.to_string_lossy()
-        //             );
-        //             ContentType::ApplicationOctetstream // arbitrary binary data RFC 2046
-        //         }
-        //     };
+        let extension = full_path
+            .extension()
+            .unwrap_or(
+                full_path
+                    .file_name()
+                    .expect("the path should not terminate in `..`"),
+            )
+            .to_str();
+
+        // Is Content-Encoding specified? Else, add default to headers.
+        http_headers
+            .entry("content-encoding".to_string())
+            .or_insert_with(||
+                // Currently we only support this (plaintext) content encoding
+                // so no need to parse it as we do with content-type.
+                "identity".to_string());
+
+        // Read the content type.
+        let content_type =
+            ContentType::try_from_extension(extension.ok_or_else(|| {
+                anyhow!("Could not read file extension for {}", full_path.display())
+            })?)
+            .unwrap_or(ContentType::TextHtml); // Default ContentType.
+
+        // If content-type not specified in ws-config.yaml, parse it from the extension.
+        http_headers
+            .entry("content-type".to_string())
+            .or_insert_with(|| content_type.to_string());
 
         let plain_content: Vec<u8> = std::fs::read(full_path)?;
         // TODO(giac): this could be (i) async; (ii) pre configured with the number of shards to
@@ -417,11 +427,6 @@ impl ResourceManager {
         let mut hash_function = Sha256::default();
         hash_function.update(&plain_content);
         let blob_hash: [u8; 32] = hash_function.finalize().digest;
-        // TODO(giac): How to encode based on the content encoding? Temporary file? No encoding?
-        //     let content = match content_encoding {
-        //         ContentEncoding::PlainText => plain_content,
-        //         ContentEncoding::Gzip => compress(&plain_content)?,
-        //     };
 
         Ok(Some(Resource::new(
             resource_path,
