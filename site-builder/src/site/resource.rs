@@ -75,15 +75,14 @@ impl HttpHeaders {
 }
 
 impl From<HashMap<String, String>> for HttpHeaders {
-    fn from(values: HashMap<String, String>) -> HttpHeaders {
-        let mut headers = Vec::new();
-        for value in values {
-            headers.push(HttpHeader {
-                name: value.0,
-                value: value.1,
-            });
-        }
-        HttpHeaders(headers)
+    fn from(values: HashMap<String, String>) -> Self {
+        Self(
+            values
+                .into_iter()
+                .map(|(name, value)| HttpHeader { name, value })
+                .collect(),
+        )
+    }
     }
 }
 
