@@ -68,11 +68,7 @@ pub struct HttpHeader {
 #[derive(serde::Serialize, Clone, Debug, PartialEq, PartialOrd, Ord, Eq)]
 pub struct HttpHeaders(pub Vec<HttpHeader>);
 
-impl HttpHeaders {
-    pub fn new() -> Self {
-        HttpHeaders(Vec::new())
-    }
-}
+impl HttpHeaders {}
 
 impl From<HashMap<String, String>> for HttpHeaders {
     fn from(values: HashMap<String, String>) -> Self {
@@ -82,7 +78,6 @@ impl From<HashMap<String, String>> for HttpHeaders {
                 .map(|(name, value)| HttpHeader { name, value })
                 .collect(),
         )
-    }
     }
 }
 
@@ -386,11 +381,14 @@ impl ResourceManager {
         );
 
         let resource_path = full_path_to_resource_path(full_path, root)?;
-        let httpheaders = self
+        let http_headers: HashMap<String, String> = self
             .ws_config
-            .and_then(|config| config.headers)
+            .as_ref()
+            .and_then(|config| config.headers.as_ref())
             .and_then(|headers| headers.get(&resource_path))
-            .unwrap_or(&HashMap::new());
+            .cloned()
+            .unwrap_or_default();
+
         // TODO(tza): try_from content type based on the content parsed from ws-config.
         // let content_type =
         //     match ContentType::try_from_extension(extension.to_str().ok_or(anyhow!(
@@ -428,7 +426,7 @@ impl ResourceManager {
         Ok(Some(Resource::new(
             full_path_to_resource_path(full_path, root)?,
             full_path.to_owned(),
-            http_headers,
+            HttpHeaders::from(http_headers),
             output.blob_id,
             U256::from_le_bytes(&blob_hash),
             // TODO(giac): Change to `content.len()` when the problem with content encoding is
